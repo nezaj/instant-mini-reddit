@@ -5,23 +5,90 @@ import { db } from '@/lib/db';
 import { type AppSchema } from '@/instant.schema';
 import { id, InstaQLEntity } from '@instantdb/react';
 
+// InstantDB Entity Types with Relationships
 type Post = InstaQLEntity<AppSchema, 'posts', { comments: {}; votes: {} }>;
 type Comment = InstaQLEntity<AppSchema, 'comments', { votes: {} }>;
 type Vote = InstaQLEntity<AppSchema, 'votes'>;
 
+// ============================================================================
+// INSTANT DB OPERATIONS - Real-time, reactive, and multiplayer by default
+// ============================================================================
+
+// Create a new post - instantly synced across all clients
+function createPost(title: string, body: string, authorId: string) {
+  db.transact(
+    db.tx.posts[id()].create({
+      title,
+      body,
+      authorId,
+      timestamp: Date.now()
+    })
+  );
+}
+
+// Create a comment with automatic relationship linking
+function createComment(
+  text: string,
+  postId: string,
+  authorId: string,
+  parentCommentId?: string
+) {
+  const commentId = id();
+  db.transact([
+    db.tx.comments[commentId].create({
+      text,
+      authorId,
+      timestamp: Date.now(),
+      ...(parentCommentId && { parentCommentId })
+    }),
+    // Link comment to post - InstantDB handles the relationship
+    db.tx.comments[commentId].link({ post: postId })
+  ]);
+}
+
+// Handle creating, updating, or removing a vote
+function handleVote(
+  targetId: string,
+  userId: string,
+  voteType: 'up' | 'down',
+  targetType: 'post' | 'comment',
+  existingVote?: Vote
+) {
+  if (existingVote) {
+    if (existingVote.voteType === voteType) {
+      db.transact(db.tx.votes[existingVote.id].delete());
+    } else {
+      db.transact(db.tx.votes[existingVote.id].update({ voteType }));
+    }
+  } else {
+    const voteId = id();
+    const linkKey = targetType === 'post' ? 'post' : 'comment';
+    db.transact([
+      db.tx.votes[voteId].create({ userId, voteType }).link({ [linkKey]: targetId })
+    ]);
+  }
+}
+
+// ============================================================================
+// MAIN APP - Demonstrates real-time queries and local-first identity
+// ============================================================================
+
 function App() {
+  // Local-first user identity - persists across sessions
   const localId = db.useLocalId('guest');
+
   const [username, setUsername] = useState('');
   const [selectedPost, setSelectedPost] = useState<string | null>(null);
   const [showNewPost, setShowNewPost] = useState(false);
 
+  // Real-time query - automatically updates when any client makes changes
   const { isLoading, error, data } = db.useQuery({
     posts: {
       $: { order: { serverCreatedAt: 'desc' } },
       comments: {
-        votes: {}
+        votes: {}  // Nested relationship loading
       },
-      votes: {}
+      votes: {}  // Load votes with posts for instant vote counts
     }
   });
 
@@ -33,7 +100,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
       <header className="bg-white border-b border-gray-300 sticky top-0 z-40">
         <div className="max-w-3xl mx-auto px-2 py-3 flex items-center justify-between">
           <h1 className="text-md font-bold text-orange-500">InstaReddit</h1>
@@ -55,7 +121,6 @@ function App() {
         </div>
       </header>
 
-      {/* Post List */}
       <main className="max-w-3xl mx-auto px-4 py-4">
         <div className="space-y-3">
           {posts.map((post) => (
@@ -69,7 +134,6 @@ function App() {
         </div>
       </main>
 
-      {/* New Post Modal */}
       {showNewPost && (
         <Modal onClose={() => setShowNewPost(false)}>
           <NewPostForm
@@ -79,7 +143,6 @@ function App() {
         </Modal>
       )}
 
-      {/* Post Detail Modal */}
       {selectedPost && (
         <Modal onClose={() => setSelectedPost(null)}>
           <PostDetail
@@ -92,47 +155,19 @@ function App() {
   );
 }
 
-function PostCard({ post, currentUser, onClick }: {
-  post: Post;
-  currentUser: string;
-  onClick: () => void;
-}) {
-  const votes = getVoteCount(post.votes || []);
-  const userVote = getUserVote(post.votes || [], currentUser);
-
-  return (
-    <div className="bg-white rounded border border-gray-300 p-4 cursor-pointer hover:border-gray-400" onClick={onClick}>
-      <div className="flex gap-3">
-        <VoteButtons
-          votes={votes}
-          userVote={userVote}
-          onVote={(type, existingVote) => handleVote(post.id, currentUser, type, 'post', existingVote)}
-        />
-        <div className="flex-1">
-          <h2 className="font-semibold text-lg mb-1">{post.title}</h2>
-          <p className="text-gray-600 text-sm mb-2 line-clamp-2">{post.body}</p>
-          <div className="text-xs text-gray-500">
-            by {post.authorId} • {formatTime(post.timestamp)} • {post.comments?.length || 0} comments
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function PostDetail({ postId, currentUser }: { postId: string; currentUser: string }) {
+  // Focused query for single post with all relationships
   const { data } = db.useQuery({
     posts: {
       $: { where: { id: postId } },
       comments: {
-        votes: {}
+        votes: {}  // Load votes for each comment
       },
-      votes: {}
+      votes: {}  // Load votes for the post
     }
   });
 
   const post = data?.posts?.[0];
-
   if (!post) return null;
 
   const votes = getVoteCount(post.votes || []);
@@ -170,6 +205,38 @@ function PostDetail({ postId, currentUser }: { postId: string; currentUser: stri
               postId={post.id}
             />
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// UI COMPONENTS - Presentation layer that reacts to InstantDB state
+// ============================================================================
+
+function PostCard({ post, currentUser, onClick }: {
+  post: Post;
+  currentUser: string;
+  onClick: () => void;
+}) {
+  const votes = getVoteCount(post.votes || []);
+  const userVote = getUserVote(post.votes || [], currentUser);
+
+  return (
+    <div className="bg-white rounded border border-gray-300 p-4 cursor-pointer hover:border-gray-400" onClick={onClick}>
+      <div className="flex gap-3">
+        <VoteButtons
+          votes={votes}
+          userVote={userVote}
+          onVote={(type, existingVote) => handleVote(post.id, currentUser, type, 'post', existingVote)}
+        />
+        <div className="flex-1">
+          <h2 className="font-semibold text-lg mb-1">{post.title}</h2>
+          <p className="text-gray-600 text-sm mb-2 line-clamp-2">{post.body}</p>
+          <div className="text-xs text-gray-500">
+            by {post.authorId} • {formatTime(post.timestamp)} • {post.comments?.length || 0} comments
+          </div>
         </div>
       </div>
     </div>
@@ -292,14 +359,7 @@ function NewPostForm({ authorId, onSubmit }: { authorId: string; onSubmit: () =>
     e.preventDefault();
     if (!title.trim() || !body.trim()) return;
 
-    db.transact(
-      db.tx.posts[id()].update({
-        title: title.trim(),
-        body: body.trim(),
-        authorId,
-        timestamp: Date.now()
-      })
-    );
+    createPost(title.trim(), body.trim(), authorId);
     onSubmit();
   };
 
@@ -356,16 +416,7 @@ function NewCommentForm({
     e.preventDefault();
     if (!text.trim()) return;
 
-    const commentId = id();
-    db.transact([
-      db.tx.comments[commentId].update({
-        text: text.trim(),
-        authorId,
-        timestamp: Date.now(),
-        ...(parentCommentId && { parentCommentId })
-      }),
-      db.tx.comments[commentId].link({ post: postId })
-    ]);
+    createComment(text.trim(), postId, authorId, parentCommentId);
     setText('');
     onSubmit?.();
   };
@@ -407,7 +458,10 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
   );
 }
 
-// Helper functions for votes
+// ============================================================================
+// UTILITY FUNCTIONS - Pure functions for data transformation
+// ============================================================================
+
 function getVoteCount(votes: Vote[]): number {
   const upvotes = votes.filter(v => v.voteType === 'up').length;
   const downvotes = votes.filter(v => v.voteType === 'down').length;
@@ -416,35 +470,6 @@ function getVoteCount(votes: Vote[]): number {
 
 function getUserVote(votes: Vote[], userId: string): Vote | null {
   return votes.find(v => v.userId === userId) || null;
-}
-
-function handleVote(
-  targetId: string,
-  userId: string,
-  voteType: 'up' | 'down',
-  targetType: 'post' | 'comment',
-  existingVote?: Vote
-) {
-  if (existingVote) {
-    // If clicking same vote type, remove vote
-    if (existingVote.voteType === voteType) {
-      db.transact(db.tx.votes[existingVote.id].delete());
-    } else {
-      // Otherwise, update vote type
-      db.transact(db.tx.votes[existingVote.id].update({ voteType }));
-    }
-  } else {
-    // Create new vote linked to target
-    const voteId = id();
-    const linkKey = targetType === 'post' ? 'post' : 'comment';
-    db.transact([
-      db.tx.votes[voteId].update({
-        userId,
-        voteType
-      }),
-      db.tx.votes[voteId].link({ [linkKey]: targetId })
-    ]);
-  }
 }
 
 function formatTime(timestamp: number): string {

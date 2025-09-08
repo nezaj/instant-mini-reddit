@@ -4,30 +4,34 @@ import { i } from '@instantdb/react';
 
 const _schema = i.schema({
   entities: {
-    $files: i.entity({
-      path: i.string().unique().indexed(),
-      url: i.string(),
+    posts: i.entity({
+      title: i.string(),
+      body: i.string(),
+      authorId: i.string(),
+      timestamp: i.number().indexed(),
+      upvotes: i.json().optional(),
+      downvotes: i.json().optional(),
     }),
-    $users: i.entity({
-      email: i.string().unique().indexed().optional(),
-    }),
-    todos: i.entity({
+    comments: i.entity({
       text: i.string(),
-      done: i.boolean(),
-      createdAt: i.number(),
+      authorId: i.string(),
+      timestamp: i.number().indexed(),
+      upvotes: i.json().optional(),
+      downvotes: i.json().optional(),
+      parentCommentId: i.string().optional(),
     }),
   },
-  links: {},
-  rooms: {
-    todos: {
-      presence: i.entity({}),
+  links: {
+    postComments: {
+      forward: { on: 'comments', has: 'one', label: 'post' },
+      reverse: { on: 'posts', has: 'many', label: 'comments' },
     },
   },
 });
 
 // This helps Typescript display nicer intellisense
 type _AppSchema = typeof _schema;
-interface AppSchema extends _AppSchema {}
+interface AppSchema extends _AppSchema { }
 const schema: AppSchema = _schema;
 
 export type { AppSchema };

@@ -1,14 +1,57 @@
 'use client';
 
 import { useState } from 'react';
-import { db } from '@/lib/db';
-import { type AppSchema } from '@/instant.schema';
-import { id, InstaQLEntity } from '@instantdb/react';
+import { init, id, InstaQLEntity, i } from '@instantdb/react';
 
-// InstantDB Entity Types with Relationships
-type Post = InstaQLEntity<AppSchema, 'posts', { comments: {}; votes: {} }>;
-type Comment = InstaQLEntity<AppSchema, 'comments', { votes: {} }>;
-type Vote = InstaQLEntity<AppSchema, 'votes'>;
+// ============================================================================
+// INSTANT SETUP - Initialize connection and define schema
+// ============================================================================
+
+// Define schema with posts, comments, and votes
+const schema = i.schema({
+  entities: {
+    posts: i.entity({
+      title: i.string(),
+      body: i.string(),
+      authorId: i.string(),
+      timestamp: i.number().indexed(),
+    }),
+    comments: i.entity({
+      text: i.string(),
+      authorId: i.string(),
+      timestamp: i.number().indexed(),
+      parentCommentId: i.string().optional(),
+    }),
+    votes: i.entity({
+      userId: i.string(),
+      voteType: i.string(),
+    }),
+  },
+  links: {
+    postComments: {
+      forward: { on: 'comments', has: 'one', label: 'post' },
+      reverse: { on: 'posts', has: 'many', label: 'comments' },
+    },
+    votePost: {
+      forward: { on: 'votes', has: 'one', label: 'post' },
+      reverse: { on: 'posts', has: 'many', label: 'votes' },
+    },
+    voteComment: {
+      forward: { on: 'votes', has: 'one', label: 'comment' },
+      reverse: { on: 'comments', has: 'many', label: 'votes' },
+    },
+  },
+});
+
+// Initialize InstantDB connection
+const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID!;
+const db = init({ appId: APP_ID, schema });
+
+// Type definitions from schema
+type Schema = typeof schema;
+type Post = InstaQLEntity<Schema, 'posts', { comments: {}; votes: {} }>;
+type Comment = InstaQLEntity<Schema, 'comments', { votes: {} }>;
+type Vote = InstaQLEntity<Schema, 'votes'>;
 
 // ============================================================================
 // INSTANT DB OPERATIONS - Real-time, reactive, and multiplayer by default
@@ -76,7 +119,7 @@ function handleVote(
 function App() {
   // Local-first user identity - persists across sessions
   const localId = db.useLocalId('guest');
-
+  
   const [username, setUsername] = useState('');
   const [selectedPost, setSelectedPost] = useState<string | null>(null);
   const [showNewPost, setShowNewPost] = useState(false);
@@ -94,7 +137,7 @@ function App() {
 
   if (isLoading) return null;
   if (error) return <div className="text-red-500 p-4">Error: {error.message}</div>;
-
+  
   const posts = data?.posts || [];
   const currentUsername = username || localId?.slice(0, 8) || 'anon';
 
@@ -215,8 +258,8 @@ function PostDetail({ postId, currentUser }: { postId: string; currentUser: stri
 // UI COMPONENTS - Presentation layer that reacts to InstantDB state
 // ============================================================================
 
-function PostCard({ post, currentUser, onClick }: {
-  post: Post;
+function PostCard({ post, currentUser, onClick }: { 
+  post: Post; 
   currentUser: string;
   onClick: () => void;
 }) {
@@ -243,13 +286,13 @@ function PostCard({ post, currentUser, onClick }: {
   );
 }
 
-function CommentThread({
-  comment,
-  allComments,
-  currentUser,
-  postId
-}: {
-  comment: Comment;
+function CommentThread({ 
+  comment, 
+  allComments, 
+  currentUser, 
+  postId 
+}: { 
+  comment: Comment; 
   allComments: Comment[];
   currentUser: string;
   postId: string;
@@ -358,7 +401,7 @@ function NewPostForm({ authorId, onSubmit }: { authorId: string; onSubmit: () =>
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !body.trim()) return;
-
+    
     createPost(title.trim(), body.trim(), authorId);
     onSubmit();
   };
@@ -415,7 +458,7 @@ function NewCommentForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!text.trim()) return;
-
+    
     createComment(text.trim(), postId, authorId, parentCommentId);
     setText('');
     onSubmit?.();

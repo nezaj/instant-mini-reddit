@@ -119,7 +119,7 @@ function handleVote(
 function App() {
   // Local-first user identity - persists across sessions
   const localId = db.useLocalId('guest');
-  
+
   const [username, setUsername] = useState('');
   const [selectedPost, setSelectedPost] = useState<string | null>(null);
   const [showNewPost, setShowNewPost] = useState(false);
@@ -137,7 +137,7 @@ function App() {
 
   if (isLoading) return null;
   if (error) return <div className="text-red-500 p-4">Error: {error.message}</div>;
-  
+
   const posts = data?.posts || [];
   const currentUsername = username || localId?.slice(0, 8) || 'anon';
 
@@ -145,7 +145,17 @@ function App() {
     <div className="min-h-screen bg-gray-100">
       <header className="bg-white border-b border-gray-300 sticky top-0 z-40">
         <div className="max-w-3xl mx-auto px-2 py-3 flex items-center justify-between">
-          <h1 className="text-md font-bold text-orange-500">InstaReddit</h1>
+          <div className="flex items-center gap-3">
+            {selectedPost && (
+              <button
+                onClick={() => setSelectedPost(null)}
+                className="text-gray-600 hover:text-gray-800"
+              >
+                ← Back
+              </button>
+            )}
+            <h1 className="text-md font-bold text-orange-500">InstaReddit</h1>
+          </div>
           <div className="flex items-center gap-3">
             <input
               type="text"
@@ -154,27 +164,36 @@ function App() {
               onChange={(e) => setUsername(e.target.value)}
               className="px-2 py-1 text-sm border rounded"
             />
-            <button
-              onClick={() => setShowNewPost(true)}
-              className="px-4 py-1 bg-orange-500 text-white rounded hover:bg-orange-600"
-            >
-              New Post
-            </button>
+            {!selectedPost && (
+              <button
+                onClick={() => setShowNewPost(true)}
+                className="px-4 py-1 bg-orange-500 text-white rounded hover:bg-orange-600"
+              >
+                New Post
+              </button>
+            )}
           </div>
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-4">
-        <div className="space-y-3">
-          {posts.map((post) => (
-            <PostCard
-              key={post.id}
-              post={post}
-              currentUser={currentUsername}
-              onClick={() => setSelectedPost(post.id)}
-            />
-          ))}
-        </div>
+        {selectedPost ? (
+          <PostDetail
+            postId={selectedPost}
+            currentUser={currentUsername}
+          />
+        ) : (
+          <div className="space-y-3">
+            {posts.map((post) => (
+              <PostCard
+                key={post.id}
+                post={post}
+                currentUser={currentUsername}
+                onClick={() => setSelectedPost(post.id)}
+              />
+            ))}
+          </div>
+        )}
       </main>
 
       {showNewPost && (
@@ -182,15 +201,6 @@ function App() {
           <NewPostForm
             authorId={currentUsername}
             onSubmit={() => setShowNewPost(false)}
-          />
-        </Modal>
-      )}
-
-      {selectedPost && (
-        <Modal onClose={() => setSelectedPost(null)}>
-          <PostDetail
-            postId={selectedPost}
-            currentUser={currentUsername}
           />
         </Modal>
       )}
@@ -211,34 +221,38 @@ function PostDetail({ postId, currentUser }: { postId: string; currentUser: stri
   });
 
   const post = data?.posts?.[0];
-  if (!post) return null;
+  if (!post) return <div className="text-gray-500 p-4">Post not found</div>;
 
   const votes = getVoteCount(post.votes || []);
   const userVote = getUserVote(post.votes || [], currentUser);
   const topLevelComments = (post.comments || []).filter(c => !c.parentCommentId);
 
   return (
-    <div className="max-h-[80vh] overflow-y-auto">
-      <div className="p-4 border-b">
-        <div className="flex gap-3">
+    <div className="bg-white rounded-lg border border-gray-300">
+      <div className="p-6 border-b">
+        <div className="flex gap-4">
           <VoteButtons
             votes={votes}
             userVote={userVote}
             onVote={(type, existingVote) => handleVote(post.id, currentUser, type, 'post', existingVote)}
           />
           <div className="flex-1">
-            <h2 className="font-semibold text-xl mb-2">{post.title}</h2>
-            <p className="text-gray-700 mb-3">{post.body}</p>
-            <div className="text-xs text-gray-500">
-              by {post.authorId} • {formatTime(post.timestamp)}
+            <h1 className="font-bold text-2xl mb-3">{post.title}</h1>
+            <p className="text-gray-700 mb-4 whitespace-pre-wrap">{post.body}</p>
+            <div className="text-sm text-gray-500">
+              Posted by {post.authorId} • {formatTime(post.timestamp)}
             </div>
           </div>
         </div>
       </div>
 
-      <div className="p-4">
-        <NewCommentForm postId={post.id} authorId={currentUser} />
-        <div className="mt-4 space-y-3">
+      <div className="p-6">
+        <div className="mb-6">
+          <h3 className="font-semibold mb-3">{post.comments?.length || 0} Comments</h3>
+          <NewCommentForm postId={post.id} authorId={currentUser} />
+        </div>
+
+        <div className="space-y-4">
           {topLevelComments.map((comment) => (
             <CommentThread
               key={comment.id}
@@ -258,8 +272,8 @@ function PostDetail({ postId, currentUser }: { postId: string; currentUser: stri
 // UI COMPONENTS - Presentation layer that reacts to InstantDB state
 // ============================================================================
 
-function PostCard({ post, currentUser, onClick }: { 
-  post: Post; 
+function PostCard({ post, currentUser, onClick }: {
+  post: Post;
   currentUser: string;
   onClick: () => void;
 }) {
@@ -286,13 +300,13 @@ function PostCard({ post, currentUser, onClick }: {
   );
 }
 
-function CommentThread({ 
-  comment, 
-  allComments, 
-  currentUser, 
-  postId 
-}: { 
-  comment: Comment; 
+function CommentThread({
+  comment,
+  allComments,
+  currentUser,
+  postId
+}: {
+  comment: Comment;
   allComments: Comment[];
   currentUser: string;
   postId: string;
@@ -401,7 +415,7 @@ function NewPostForm({ authorId, onSubmit }: { authorId: string; onSubmit: () =>
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !body.trim()) return;
-    
+
     createPost(title.trim(), body.trim(), authorId);
     onSubmit();
   };
@@ -458,7 +472,7 @@ function NewCommentForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!text.trim()) return;
-    
+
     createComment(text.trim(), postId, authorId, parentCommentId);
     setText('');
     onSubmit?.();

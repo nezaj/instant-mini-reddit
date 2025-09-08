@@ -5,8 +5,9 @@ import { db } from '@/lib/db';
 import { type AppSchema } from '@/instant.schema';
 import { id, InstaQLEntity } from '@instantdb/react';
 
-type Post = InstaQLEntity<AppSchema, 'posts', { comments: {} }>;
-type Comment = InstaQLEntity<AppSchema, 'comments'>;
+type Post = InstaQLEntity<AppSchema, 'posts', { comments: {}; votes: {} }>;
+type Comment = InstaQLEntity<AppSchema, 'comments', { votes: {} }>;
+type Vote = InstaQLEntity<AppSchema, 'votes'>;
 
 function App() {
   const localId = db.useLocalId('guest');
@@ -17,7 +18,10 @@ function App() {
   const { isLoading, error, data } = db.useQuery({
     posts: {
       $: { order: { serverCreatedAt: 'desc' } },
-      comments: {}
+      comments: {
+        votes: {}
+      },
+      votes: {}
     }
   });
 
@@ -93,8 +97,8 @@ function PostCard({ post, currentUser, onClick }: {
   currentUser: string;
   onClick: () => void;
 }) {
-  const votes = getVotes(post);
-  const userVote = getUserVote(post, currentUser);
+  const votes = getVoteCount(post.votes || []);
+  const userVote = getUserVote(post.votes || [], currentUser);
 
   return (
     <div className="bg-white rounded border border-gray-300 p-4 cursor-pointer hover:border-gray-400" onClick={onClick}>
@@ -102,7 +106,7 @@ function PostCard({ post, currentUser, onClick }: {
         <VoteButtons
           votes={votes}
           userVote={userVote}
-          onVote={(type) => handlePostVote(post.id, currentUser, type)}
+          onVote={(type) => handlePostVote(post, currentUser, type)}
         />
         <div className="flex-1">
           <h2 className="font-semibold text-lg mb-1">{post.title}</h2>
@@ -120,15 +124,19 @@ function PostDetail({ postId, currentUser }: { postId: string; currentUser: stri
   const { data } = db.useQuery({
     posts: {
       $: { where: { id: postId } },
-      comments: {}
+      comments: {
+        votes: {}
+      },
+      votes: {}
     }
   });
 
   const post = data?.posts?.[0];
+
   if (!post) return null;
 
-  const votes = getVotes(post);
-  const userVote = getUserVote(post, currentUser);
+  const votes = getVoteCount(post.votes || []);
+  const userVote = getUserVote(post.votes || [], currentUser);
   const topLevelComments = (post.comments || []).filter(c => !c.parentCommentId);
 
   return (
@@ -138,7 +146,7 @@ function PostDetail({ postId, currentUser }: { postId: string; currentUser: stri
           <VoteButtons
             votes={votes}
             userVote={userVote}
-            onVote={(type) => handlePostVote(post.id, currentUser, type)}
+            onVote={(type) => handlePostVote(post, currentUser, type)}
           />
           <div className="flex-1">
             <h2 className="font-semibold text-xl mb-2">{post.title}</h2>
@@ -180,8 +188,8 @@ function CommentThread({
   postId: string;
 }) {
   const [showReply, setShowReply] = useState(false);
-  const votes = getVotes(comment);
-  const userVote = getUserVote(comment, currentUser);
+  const votes = getVoteCount(comment.votes || []);
+  const userVote = getUserVote(comment.votes || [], currentUser);
   const replies = allComments.filter(c => c.parentCommentId === comment.id);
 
   return (
@@ -190,7 +198,7 @@ function CommentThread({
         <VoteButtons
           votes={votes}
           userVote={userVote}
-          onVote={(type) => handleCommentVote(comment.id, currentUser, type)}
+          onVote={(type) => handleCommentVote(comment, currentUser, type)}
           small
         />
         <div className="flex-1">
@@ -222,9 +230,9 @@ function CommentThread({
             <div key={reply.id} className="pl-3">
               <div className="flex gap-2">
                 <VoteButtons
-                  votes={getVotes(reply)}
-                  userVote={getUserVote(reply, currentUser)}
-                  onVote={(type) => handleCommentVote(reply.id, currentUser, type)}
+                  votes={getVoteCount(reply.votes || [])}
+                  userVote={getUserVote(reply.votes || [], currentUser)}
+                  onVote={(type) => handleCommentVote(reply, currentUser, type)}
                   small
                 />
                 <div className="flex-1">
@@ -288,9 +296,7 @@ function NewPostForm({ authorId, onSubmit }: { authorId: string; onSubmit: () =>
         title: title.trim(),
         body: body.trim(),
         authorId,
-        timestamp: Date.now(),
-        upvotes: [],
-        downvotes: []
+        timestamp: Date.now()
       })
     );
     onSubmit();
@@ -355,8 +361,6 @@ function NewCommentForm({
         text: text.trim(),
         authorId,
         timestamp: Date.now(),
-        upvotes: [],
-        downvotes: [],
         ...(parentCommentId && { parentCommentId })
       }),
       db.tx.comments[commentId].link({ post: postId })
@@ -402,70 +406,65 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
   );
 }
 
-// Helper functions
-function getVotes(item: Post | Comment): number {
-  const upvotes = (item.upvotes as string[]) || [];
-  const downvotes = (item.downvotes as string[]) || [];
-  return upvotes.length - downvotes.length;
+// Helper functions for votes
+function getVoteCount(votes: Vote[]): number {
+  const upvotes = votes.filter(v => v.voteType === 'up').length;
+  const downvotes = votes.filter(v => v.voteType === 'down').length;
+  return upvotes - downvotes;
 }
 
-function getUserVote(item: Post | Comment, userId: string): 'up' | 'down' | null {
-  const upvotes = (item.upvotes as string[]) || [];
-  const downvotes = (item.downvotes as string[]) || [];
-
-  if (upvotes.includes(userId)) return 'up';
-  if (downvotes.includes(userId)) return 'down';
-  return null;
+function getUserVote(votes: Vote[], userId: string): 'up' | 'down' | null {
+  const userVote = votes.find(v => v.userId === userId);
+  if (!userVote) return null;
+  return userVote.voteType as 'up' | 'down';
 }
 
-async function handlePostVote(postId: string, userId: string, type: 'up' | 'down') {
-  const { data } = await db.queryOnce({ posts: { $: { where: { id: postId } } } });
-  const post = data?.posts?.[0];
-  if (!post) return;
+function handlePostVote(post: Post, userId: string, voteType: 'up' | 'down') {
+  const existingVote = post.votes?.find(v => v.userId === userId);
 
-  let upvotes = (post.upvotes as string[]) || [];
-  let downvotes = (post.downvotes as string[]) || [];
-
-  const wasUpvoted = upvotes.includes(userId);
-  const wasDownvoted = downvotes.includes(userId);
-
-  upvotes = upvotes.filter(id => id !== userId);
-  downvotes = downvotes.filter(id => id !== userId);
-
-  if (type === 'up' && !wasUpvoted) {
-    upvotes.push(userId);
-  } else if (type === 'down' && !wasDownvoted) {
-    downvotes.push(userId);
+  if (existingVote) {
+    // If clicking same vote type, remove vote
+    if (existingVote.voteType === voteType) {
+      db.transact(db.tx.votes[existingVote.id].delete());
+    } else {
+      // Otherwise, update vote type
+      db.transact(db.tx.votes[existingVote.id].update({ voteType }));
+    }
+  } else {
+    // Create new vote linked to post
+    const voteId = id();
+    db.transact([
+      db.tx.votes[voteId].update({
+        userId,
+        voteType
+      }),
+      db.tx.votes[voteId].link({ post: post.id })
+    ]);
   }
-
-  db.transact(
-    db.tx.posts[postId].update({ upvotes, downvotes })
-  );
 }
 
-async function handleCommentVote(commentId: string, userId: string, type: 'up' | 'down') {
-  const { data } = await db.queryOnce({ comments: { $: { where: { id: commentId } } } });
-  const comment = data?.comments?.[0];
-  if (!comment) return;
+function handleCommentVote(comment: Comment, userId: string, voteType: 'up' | 'down') {
+  const existingVote = comment.votes?.find(v => v.userId === userId);
 
-  let upvotes = (comment.upvotes as string[]) || [];
-  let downvotes = (comment.downvotes as string[]) || [];
-
-  const wasUpvoted = upvotes.includes(userId);
-  const wasDownvoted = downvotes.includes(userId);
-
-  upvotes = upvotes.filter(id => id !== userId);
-  downvotes = downvotes.filter(id => id !== userId);
-
-  if (type === 'up' && !wasUpvoted) {
-    upvotes.push(userId);
-  } else if (type === 'down' && !wasDownvoted) {
-    downvotes.push(userId);
+  if (existingVote) {
+    // If clicking same vote type, remove vote
+    if (existingVote.voteType === voteType) {
+      db.transact(db.tx.votes[existingVote.id].delete());
+    } else {
+      // Otherwise, update vote type
+      db.transact(db.tx.votes[existingVote.id].update({ voteType }));
+    }
+  } else {
+    // Create new vote linked to comment
+    const voteId = id();
+    db.transact([
+      db.tx.votes[voteId].update({
+        userId,
+        voteType
+      }),
+      db.tx.votes[voteId].link({ comment: comment.id })
+    ]);
   }
-
-  db.transact(
-    db.tx.comments[commentId].update({ upvotes, downvotes })
-  );
 }
 
 function formatTime(timestamp: number): string {

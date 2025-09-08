@@ -9,22 +9,30 @@ const _schema = i.schema({
       body: i.string(),
       authorId: i.string(),
       timestamp: i.number().indexed(),
-      upvotes: i.json().optional(),
-      downvotes: i.json().optional(),
     }),
     comments: i.entity({
       text: i.string(),
       authorId: i.string(),
       timestamp: i.number().indexed(),
-      upvotes: i.json().optional(),
-      downvotes: i.json().optional(),
       parentCommentId: i.string().optional(),
+    }),
+    votes: i.entity({
+      userId: i.string(),
+      voteType: i.string(),
     }),
   },
   links: {
     postComments: {
       forward: { on: 'comments', has: 'one', label: 'post' },
       reverse: { on: 'posts', has: 'many', label: 'comments' },
+    },
+    votePost: {
+      forward: { on: 'votes', has: 'one', label: 'post' },
+      reverse: { on: 'posts', has: 'many', label: 'votes' },
+    },
+    voteComment: {
+      forward: { on: 'votes', has: 'one', label: 'comment' },
+      reverse: { on: 'comments', has: 'many', label: 'votes' },
     },
   },
 });

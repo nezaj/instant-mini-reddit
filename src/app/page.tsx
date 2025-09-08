@@ -1,14 +1,57 @@
 'use client';
 
 import { useState } from 'react';
-import { db } from '@/lib/db';
-import { type AppSchema } from '@/instant.schema';
-import { id, InstaQLEntity } from '@instantdb/react';
+import { init, id, InstaQLEntity, i } from '@instantdb/react';
 
-// InstantDB Entity Types with Relationships
-type Post = InstaQLEntity<AppSchema, 'posts', { comments: {}; votes: {} }>;
-type Comment = InstaQLEntity<AppSchema, 'comments', { votes: {} }>;
-type Vote = InstaQLEntity<AppSchema, 'votes'>;
+// ============================================================================
+// INSTANT SETUP - Initialize connection and define schema
+// ============================================================================
+
+// Define schema with posts, comments, and votes
+const schema = i.schema({
+  entities: {
+    posts: i.entity({
+      title: i.string(),
+      body: i.string(),
+      authorId: i.string(),
+      timestamp: i.number().indexed(),
+    }),
+    comments: i.entity({
+      text: i.string(),
+      authorId: i.string(),
+      timestamp: i.number().indexed(),
+      parentCommentId: i.string().optional(),
+    }),
+    votes: i.entity({
+      userId: i.string(),
+      voteType: i.string(),
+    }),
+  },
+  links: {
+    postComments: {
+      forward: { on: 'comments', has: 'one', label: 'post' },
+      reverse: { on: 'posts', has: 'many', label: 'comments' },
+    },
+    votePost: {
+      forward: { on: 'votes', has: 'one', label: 'post' },
+      reverse: { on: 'posts', has: 'many', label: 'votes' },
+    },
+    voteComment: {
+      forward: { on: 'votes', has: 'one', label: 'comment' },
+      reverse: { on: 'comments', has: 'many', label: 'votes' },
+    },
+  },
+});
+
+// Initialize InstantDB connection
+const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID!;
+const db = init({ appId: APP_ID, schema });
+
+// Type definitions from schema
+type Schema = typeof schema;
+type Post = InstaQLEntity<Schema, 'posts', { comments: {}; votes: {} }>;
+type Comment = InstaQLEntity<Schema, 'comments', { votes: {} }>;
+type Vote = InstaQLEntity<Schema, 'votes'>;
 
 // ============================================================================
 // INSTANT DB OPERATIONS - Real-time, reactive, and multiplayer by default
@@ -102,7 +145,17 @@ function App() {
     <div className="min-h-screen bg-gray-100">
       <header className="bg-white border-b border-gray-300 sticky top-0 z-40">
         <div className="max-w-3xl mx-auto px-2 py-3 flex items-center justify-between">
-          <h1 className="text-md font-bold text-orange-500">InstaReddit</h1>
+          <div className="flex items-center gap-3">
+            {selectedPost && (
+              <button
+                onClick={() => setSelectedPost(null)}
+                className="text-gray-600 hover:text-gray-800"
+              >
+                ← Back
+              </button>
+            )}
+            <h1 className="text-md font-bold text-orange-500">InstaReddit</h1>
+          </div>
           <div className="flex items-center gap-3">
             <input
               type="text"
@@ -111,27 +164,36 @@ function App() {
               onChange={(e) => setUsername(e.target.value)}
               className="px-2 py-1 text-sm border rounded"
             />
-            <button
-              onClick={() => setShowNewPost(true)}
-              className="px-4 py-1 bg-orange-500 text-white rounded hover:bg-orange-600"
-            >
-              New Post
-            </button>
+            {!selectedPost && (
+              <button
+                onClick={() => setShowNewPost(true)}
+                className="px-4 py-1 bg-orange-500 text-white rounded hover:bg-orange-600"
+              >
+                New Post
+              </button>
+            )}
           </div>
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-4">
-        <div className="space-y-3">
-          {posts.map((post) => (
-            <PostCard
-              key={post.id}
-              post={post}
-              currentUser={currentUsername}
-              onClick={() => setSelectedPost(post.id)}
-            />
-          ))}
-        </div>
+        {selectedPost ? (
+          <PostDetail
+            postId={selectedPost}
+            currentUser={currentUsername}
+          />
+        ) : (
+          <div className="space-y-3">
+            {posts.map((post) => (
+              <PostCard
+                key={post.id}
+                post={post}
+                currentUser={currentUsername}
+                onClick={() => setSelectedPost(post.id)}
+              />
+            ))}
+          </div>
+        )}
       </main>
 
       {showNewPost && (
@@ -139,15 +201,6 @@ function App() {
           <NewPostForm
             authorId={currentUsername}
             onSubmit={() => setShowNewPost(false)}
-          />
-        </Modal>
-      )}
-
-      {selectedPost && (
-        <Modal onClose={() => setSelectedPost(null)}>
-          <PostDetail
-            postId={selectedPost}
-            currentUser={currentUsername}
           />
         </Modal>
       )}
@@ -168,34 +221,38 @@ function PostDetail({ postId, currentUser }: { postId: string; currentUser: stri
   });
 
   const post = data?.posts?.[0];
-  if (!post) return null;
+  if (!post) return <div className="text-gray-500 p-4">Post not found</div>;
 
   const votes = getVoteCount(post.votes || []);
   const userVote = getUserVote(post.votes || [], currentUser);
   const topLevelComments = (post.comments || []).filter(c => !c.parentCommentId);
 
   return (
-    <div className="max-h-[80vh] overflow-y-auto">
-      <div className="p-4 border-b">
-        <div className="flex gap-3">
+    <div className="bg-white rounded-lg border border-gray-300">
+      <div className="p-6 border-b">
+        <div className="flex gap-4">
           <VoteButtons
             votes={votes}
             userVote={userVote}
             onVote={(type, existingVote) => handleVote(post.id, currentUser, type, 'post', existingVote)}
           />
           <div className="flex-1">
-            <h2 className="font-semibold text-xl mb-2">{post.title}</h2>
-            <p className="text-gray-700 mb-3">{post.body}</p>
-            <div className="text-xs text-gray-500">
-              by {post.authorId} • {formatTime(post.timestamp)}
+            <h1 className="font-bold text-2xl mb-3">{post.title}</h1>
+            <p className="text-gray-700 mb-4 whitespace-pre-wrap">{post.body}</p>
+            <div className="text-sm text-gray-500">
+              Posted by {post.authorId} • {formatTime(post.timestamp)}
             </div>
           </div>
         </div>
       </div>
 
-      <div className="p-4">
-        <NewCommentForm postId={post.id} authorId={currentUser} />
-        <div className="mt-4 space-y-3">
+      <div className="p-6">
+        <div className="mb-6">
+          <h3 className="font-semibold mb-3">{post.comments?.length || 0} Comments</h3>
+          <NewCommentForm postId={post.id} authorId={currentUser} />
+        </div>
+
+        <div className="space-y-4">
           {topLevelComments.map((comment) => (
             <CommentThread
               key={comment.id}

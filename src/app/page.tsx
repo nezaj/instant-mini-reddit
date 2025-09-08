@@ -106,7 +106,7 @@ function PostCard({ post, currentUser, onClick }: {
         <VoteButtons
           votes={votes}
           userVote={userVote}
-          onVote={(type) => handlePostVote(post, currentUser, type)}
+          onVote={(type, existingVote) => handleVote(post.id, currentUser, type, 'post', existingVote)}
         />
         <div className="flex-1">
           <h2 className="font-semibold text-lg mb-1">{post.title}</h2>
@@ -146,7 +146,7 @@ function PostDetail({ postId, currentUser }: { postId: string; currentUser: stri
           <VoteButtons
             votes={votes}
             userVote={userVote}
-            onVote={(type) => handlePostVote(post, currentUser, type)}
+            onVote={(type, existingVote) => handleVote(post.id, currentUser, type, 'post', existingVote)}
           />
           <div className="flex-1">
             <h2 className="font-semibold text-xl mb-2">{post.title}</h2>
@@ -198,7 +198,7 @@ function CommentThread({
         <VoteButtons
           votes={votes}
           userVote={userVote}
-          onVote={(type) => handleCommentVote(comment, currentUser, type)}
+          onVote={(type, existingVote) => handleVote(comment.id, currentUser, type, 'comment', existingVote)}
           small
         />
         <div className="flex-1">
@@ -232,7 +232,7 @@ function CommentThread({
                 <VoteButtons
                   votes={getVoteCount(reply.votes || [])}
                   userVote={getUserVote(reply.votes || [], currentUser)}
-                  onVote={(type) => handleCommentVote(reply, currentUser, type)}
+                  onVote={(type, existingVote) => handleVote(reply.id, currentUser, type, 'comment', existingVote)}
                   small
                 />
                 <div className="flex-1">
@@ -257,25 +257,26 @@ function VoteButtons({
   small = false
 }: {
   votes: number;
-  userVote: 'up' | 'down' | null;
-  onVote: (type: 'up' | 'down') => void;
+  userVote: Vote | null;
+  onVote: (type: 'up' | 'down', existingVote?: Vote) => void;
   small?: boolean;
 }) {
   const size = small ? 'w-4 h-4' : 'w-5 h-5';
   const textSize = small ? 'text-xs' : 'text-sm';
+  const voteType = userVote?.voteType;
 
   return (
     <div className="flex flex-col items-center gap-1">
       <button
-        onClick={(e) => { e.stopPropagation(); onVote('up'); }}
-        className={`${size} ${userVote === 'up' ? 'text-orange-500' : 'text-gray-400 hover:text-orange-500'}`}
+        onClick={(e) => { e.stopPropagation(); onVote('up', userVote || undefined); }}
+        className={`${size} ${voteType === 'up' ? 'text-orange-500' : 'text-gray-400 hover:text-orange-500'}`}
       >
         ▲
       </button>
       <span className={`${textSize} font-semibold`}>{votes}</span>
       <button
-        onClick={(e) => { e.stopPropagation(); onVote('down'); }}
-        className={`${size} ${userVote === 'down' ? 'text-blue-500' : 'text-gray-400 hover:text-blue-500'}`}
+        onClick={(e) => { e.stopPropagation(); onVote('down', userVote || undefined); }}
+        className={`${size} ${voteType === 'down' ? 'text-blue-500' : 'text-gray-400 hover:text-blue-500'}`}
       >
         ▼
       </button>
@@ -413,15 +414,17 @@ function getVoteCount(votes: Vote[]): number {
   return upvotes - downvotes;
 }
 
-function getUserVote(votes: Vote[], userId: string): 'up' | 'down' | null {
-  const userVote = votes.find(v => v.userId === userId);
-  if (!userVote) return null;
-  return userVote.voteType as 'up' | 'down';
+function getUserVote(votes: Vote[], userId: string): Vote | null {
+  return votes.find(v => v.userId === userId) || null;
 }
 
-function handlePostVote(post: Post, userId: string, voteType: 'up' | 'down') {
-  const existingVote = post.votes?.find(v => v.userId === userId);
-
+function handleVote(
+  targetId: string,
+  userId: string,
+  voteType: 'up' | 'down',
+  targetType: 'post' | 'comment',
+  existingVote?: Vote
+) {
   if (existingVote) {
     // If clicking same vote type, remove vote
     if (existingVote.voteType === voteType) {
@@ -431,38 +434,15 @@ function handlePostVote(post: Post, userId: string, voteType: 'up' | 'down') {
       db.transact(db.tx.votes[existingVote.id].update({ voteType }));
     }
   } else {
-    // Create new vote linked to post
+    // Create new vote linked to target
     const voteId = id();
+    const linkKey = targetType === 'post' ? 'post' : 'comment';
     db.transact([
       db.tx.votes[voteId].update({
         userId,
         voteType
       }),
-      db.tx.votes[voteId].link({ post: post.id })
-    ]);
-  }
-}
-
-function handleCommentVote(comment: Comment, userId: string, voteType: 'up' | 'down') {
-  const existingVote = comment.votes?.find(v => v.userId === userId);
-
-  if (existingVote) {
-    // If clicking same vote type, remove vote
-    if (existingVote.voteType === voteType) {
-      db.transact(db.tx.votes[existingVote.id].delete());
-    } else {
-      // Otherwise, update vote type
-      db.transact(db.tx.votes[existingVote.id].update({ voteType }));
-    }
-  } else {
-    // Create new vote linked to comment
-    const voteId = id();
-    db.transact([
-      db.tx.votes[voteId].update({
-        userId,
-        voteType
-      }),
-      db.tx.votes[voteId].link({ comment: comment.id })
+      db.tx.votes[voteId].link({ [linkKey]: targetId })
     ]);
   }
 }

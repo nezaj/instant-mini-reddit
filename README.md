@@ -1,15 +1,7 @@
-# Welcome to your InstantDB NextJS app 👋
+# Instant Mini Reddit
 
-This is a NextJS project scaffolded with create-instant-app.
+Mini reddit clone built with InstantDB, Next.js, and Tailwind. One-file app `src/app/page.tsx` with all the code to show a simple example of how to use InstantDB to build a relational CRUD app
 
-To run the development server:
-`npm run dev`
-
-To push schema changes:
-`npx instant-cli push`
-
-To pull schema changes:
-`npx instant-cli pull`
-
+<img src="./public/preview.png" alt="InstaReddit" width="400">
 
 Got any feedback or questions? Join our [Discord](https://discord.gg/hgVf9R6SBm)

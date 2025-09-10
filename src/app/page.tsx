@@ -1,3 +1,23 @@
+/**
+ * Minimal Reddit Clone with InstantDB
+ * 
+ * A real-time, reactive Reddit-like application built with InstantDB, Next.js, and Tailwind CSS.
+ * All functionality is contained in this single file.
+ * 
+ * Features:
+ * - Create posts with title and body
+ * - Upvote/downvote system for posts and comments
+ * - Nested comments (one level deep)
+ * - Real-time updates across all connected clients
+ * - Persistent local user identity
+ * - Mobile-friendly responsive design
+ * 
+ * Technical highlights:
+ * - InstantDB for real-time reactive data
+ * - Type-safe queries with InstaQL
+ * - Relationship-based data modeling (posts ↔ comments ↔ votes)
+ */
+
 'use client';
 
 import { useState } from 'react';

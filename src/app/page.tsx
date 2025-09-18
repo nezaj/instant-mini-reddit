@@ -139,7 +139,8 @@ function handleVote(
     const voteId = id();
     const linkKey = targetType === 'post' ? 'post' : 'comment';
     db.transact([
-      db.tx.votes[voteId].create({ userId, voteType }).link({ [linkKey]: targetId })
+      db.tx.votes[voteId].create({ userId, voteType }),
+      db.tx.votes[voteId].link({ [linkKey]: targetId })
     ]);
   }
 }

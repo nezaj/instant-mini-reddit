@@ -20,7 +20,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { init, id, InstaQLEntity, i } from '@instantdb/react';
 
 // ============================================================================
@@ -89,6 +89,18 @@ function createPost(title: string, body: string, authorId: string) {
   );
 }
 
+// Create multiple posts in a single transaction
+function createPosts(posts: { title: string; body: string; authorId: string }[]) {
+  const transactions = posts.map(post =>
+    db.tx.posts[id()].create({
+      title: post.title,
+      body: post.body,
+      authorId: post.authorId,
+      timestamp: Date.now()
+    }))
+  db.transact(transactions);
+}
+
 // Create a comment with automatic relationship linking
 function createComment(
   text: string,
@@ -143,6 +155,28 @@ function App() {
   const [username, setUsername] = useState('');
   const [selectedPost, setSelectedPost] = useState<string | null>(null);
   const [showNewPost, setShowNewPost] = useState(false);
+
+  useEffect(() => {
+    const seedPosts = async () => {
+      // If need to query inside useEffect, use queryOnce for one-time fetch
+      const { data } = await db.queryOnce({ posts: {} });
+      if (data.posts.length === 0) {
+        createPosts([
+          {
+            title: "Try it out!",
+            body: "Create posts, comment, and vote to see real-time collaboration in action.",
+            authorId: "manyminiapps"
+          },
+          {
+            title: "Welcome to InstaReddit!",
+            body: "This is a minimal Reddit clone built with InstantDB.",
+            authorId: "manyminiapps"
+          }]);
+      }
+    }
+
+    seedPosts();
+  }, []);
 
   // Real-time query - automatically updates when any client makes changes
   const { isLoading, error, data } = db.useQuery({
